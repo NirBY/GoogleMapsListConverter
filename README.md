@@ -1,83 +1,68 @@
 # Google Maps List Converter
 
-Import a Google My Maps **KMZ** export into one Google Maps **Saved List**.
-The converter preserves My Maps folder names as searchable section labels and
-copies placemark descriptions into the corresponding place notes.
+Import a Google My Maps **KMZ** export into Google Maps **Saved Lists**. Each My Maps layer becomes a separate list, placemark descriptions become place notes, and coordinate-only pins receive the original KMZ name as a private Google Maps label.
 
-> Google does not provide an official bulk-import API for Saved Lists. This
-> project automates the current Google Maps web interface and may need selector
-> updates when Google changes that interface.
+> Google has no official bulk-import API for Saved Lists. This tool automates the current Google Maps web interface, so selectors may need maintenance when Google changes Maps.
 
-## What is preserved
+## What is imported
 
-- Point name and coordinates
-- My Maps folder hierarchy
-- Placemark description, converted from HTML to readable text
-- One Google Maps Saved List selected by name
-- A CSV audit log with separate place and note statuses
+- One Google Maps Saved List per My Maps layer (including nested folder paths)
+- Point names and coordinates
+- Placemark descriptions as Google Maps place notes
+- The KMZ document/general description as every generated list's description
+- Original point names as private labels when Google resolves only a coordinate pin
+- A CSV audit log with separate place, label, and note results
 
-Google Maps Saved Lists do **not** currently provide nested folders/sections on
-the desktop web interface. To keep everything in one list, each note starts
-with `[Section: folder / nested folder]`. This makes the original sections
-visible and searchable without creating multiple lists. Saved Lists may also
-reorder places independently of the KMZ order.
+Duplicate coordinates are merged only within the same layer. The same point in two layers remains in both generated lists. Lines and polygons are skipped.
 
-Only KML `Point` placemarks are imported. Lines and polygons are skipped.
+Google Maps notes are normally collapsed behind **Note / הערה**. The text is saved even when it is not expanded in the list view.
+
+## Show all generated lists on one map
+
+In Google Maps, open **Saved**, open each generated list, and enable **Show on your map**. Multiple Saved Lists can be visible together. They remain separate lists, because Saved Lists do not support My Maps-style sections.
 
 ## Privacy
 
-KMZ descriptions can contain addresses, access codes, Wi-Fi credentials, and
-other personal information. Review the source before importing or sharing the
-Google Maps list.
+KMZ descriptions may contain addresses, access codes, links, or other personal information. Review them before importing or sharing a list.
 
-This repository ignores:
-
-- `*.kmz` and `*.kml`
-- extracted/generated place CSV files and import logs
-- Chrome automation profiles (cookies, sessions, browsing data)
-- `.env` files, caches, and virtual environments
-
-Never force-add those files to Git. The audit log records note status but not
-the note body.
+The repository ignores KMZ/KML files, generated CSV/log files, Chrome automation profiles, `.env` files, caches, and virtual environments. Never force-add these files. The audit log records statuses but never note bodies.
 
 ## Requirements
 
-- Windows, macOS, or Linux
 - Python 3.10+
 - Google Chrome
 - A Google account signed in to Google Maps
-
-Install dependencies:
 
 ```powershell
 python -m pip install -r requirements.txt
 ```
 
-The importer connects to Chrome itself, so a separately downloaded Playwright
-browser is not required.
-
 ## Import instructions
 
-### 1. Export from My Maps
+### 1. Export My Maps
 
-In Google My Maps, open the map menu, choose **Export to KML/KMZ**, export the
-entire map, and keep the result as a `.kmz` file.
+Open the map menu in Google My Maps, choose **Export to KML/KMZ**, export the whole map, and keep the `.kmz` file.
 
-### 2. Preview the KMZ safely
+### 2. Preview safely
 
-This verifies the file and displays only folder and point counts. Descriptions
-are deliberately not printed because they may contain private information.
+The preview prints generated list names and counts, but not private descriptions:
+
+```powershell
+python google_maps_list_converter.py "C:\path\to\my-map.kmz" --dry-run
+```
+
+The KMZ document name is the default list prefix. Override it if desired:
 
 ```powershell
 python google_maps_list_converter.py "C:\path\to\my-map.kmz" `
-  --list-name "My trip" `
-  --dry-run
+  --list-prefix "Cyprus 2026" --dry-run
 ```
 
-### 3. Start a dedicated Chrome profile
+Google Maps list names are limited to 40 characters, so long prefix/layer combinations are shortened automatically.
 
-Close Chrome completely first. Current Chrome versions require a non-default
-profile for remote debugging.
+### 3. Start Chrome for automation
+
+Close Chrome completely, then start a dedicated profile.
 
 Windows PowerShell:
 
@@ -87,80 +72,61 @@ Windows PowerShell:
   --user-data-dir="$PWD\chrome-automation-profile"
 ```
 
-macOS:
+macOS/Linux equivalents:
 
 ```bash
+# macOS
 /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome \
-  --remote-debugging-port=9222 \
-  --user-data-dir="$PWD/chrome-automation-profile"
-```
+  --remote-debugging-port=9222 --user-data-dir="$PWD/chrome-automation-profile"
 
-Linux:
-
-```bash
+# Linux
 google-chrome --remote-debugging-port=9222 \
   --user-data-dir="$PWD/chrome-automation-profile"
 ```
 
-In that Chrome window:
+Sign in to Google Maps in that Chrome window and leave Maps open. The importer creates the layer lists automatically.
 
-1. Sign in to Google Maps.
-2. Create the destination Saved List manually.
-3. Keep Google Maps open.
-
-### 4. Run the import
+### 4. Import
 
 ```powershell
-$env:PYTHONIOENCODING="utf-8"
 python google_maps_list_converter.py "C:\path\to\my-map.kmz" `
-  --list-name "My trip"
+  --list-prefix "Cyprus 2026"
 ```
 
-Useful options:
+Do not interact with the automated Maps tab until it finishes.
+
+Options:
 
 ```text
---dry-run       Parse and summarize only; do not connect to Chrome
---no-notes      Save places without folder/description notes
---delay 3       Wait three seconds between places
---log FILE.csv  Choose the audit-log path
---cdp-url URL   Use a different Chrome debugging endpoint
+--list-prefix TEXT  Prefix for every generated layer list
+--dry-run           Parse and summarize without opening Chrome
+--no-notes          Save places without placemark notes
+--delay 3           Wait three seconds between points
+--log FILE.csv      Select the audit-log path
+--cdp-url URL       Select a different Chrome debugging endpoint
 ```
 
-Do not interact with the automated Maps tab while the import runs. Chrome is
-left open when the process finishes.
+## Notes, labels, and reruns
 
-## Notes and sections
+The importer locates the specific saved-list row by point name before adding its note. This avoids the earlier bug where comments after the first few points could be attached to the wrong row.
 
-For a placemark in `Restaurants / Vegan` with the description `Book ahead`,
-the importer attempts to add this Google Maps note:
+When name search fails, the importer saves the coordinate pin and adds the original KMZ point name using Google Maps' **private label** feature. `LabelStatus` in the audit CSV reports whether that succeeded.
 
-```text
-[Section: Restaurants / Vegan]
-
-Book ahead
-```
-
-Google localizes and changes the note editor more often than the Save picker.
-The CSV audit log therefore reports `Status` and `NoteStatus` separately. A
-place can be saved successfully even if its note needs manual attention.
+For safety, a rerun does not add a note to an item already present in the target list: Google Maps does not expose a stable entry identifier, and guessing could overwrite another point's note. Use fresh generated lists for a clean full import, or inspect `NoteStatus` in the audit log for manual retries.
 
 ## Tests
 
 ```powershell
 python -m pip install -r requirements-dev.txt
-python -m pytest
+python -m pytest -q
 ```
 
-Tests use synthetic KML data only and never open Chrome or contain personal map
-content.
+Tests use synthetic KML only and never open Chrome or contain personal map data.
 
 ## Troubleshooting
 
-- **Cannot connect to port 9222:** close all Chrome processes and relaunch with
-  both `--remote-debugging-port` and `--user-data-dir`.
-- **Target list not found:** create it in the same dedicated Chrome profile and
-  match spelling/capitalization exactly.
-- **No savable place:** Google could not resolve the name or coordinate to a
-  place/pin supported by Saved Lists; check the audit log.
-- **Note failed:** the place remains saved. Add the note manually or update the
-  localized note selectors in `MapsImporter.add_note`.
+- **Cannot connect to port 9222:** close all Chrome processes and relaunch with both remote-debugging options.
+- **Not signed in:** sign in inside the dedicated Chrome profile, not your normal Chrome window.
+- **Coordinate shown as title:** inspect `LabelStatus`; the private label UI may have changed or the point may already have a different label.
+- **Comment missing:** expand **Note / הערה**, then check `NoteStatus` and `NoteMessage` in the audit CSV.
+- **List creation failed:** check the generated name in dry-run and confirm Maps is open in the signed-in automation profile.
