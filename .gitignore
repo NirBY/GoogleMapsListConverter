@@ -1,0 +1,29 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+
+# Browser profiles contain cookies, tokens, history, and account data.
+chrome-automation-profile/
+*-automation-profile/
+
+# Personal map exports and generated import artifacts.
+*.kmz
+*.kml
+*_places.csv
+google_maps_import_log*.csv
+
+# Local configuration and secrets.
+.env
+.env.*
+!.env.example
+
+
+# Legacy local prototype files (may contain trip-specific defaults).
+import_mymaps_to_google_list_chrome.py
+README_google_maps_chrome.txt
+*.crdownload
+*.exe
