@@ -218,7 +218,12 @@ class MapsImporter:
                 title = self.page.locator('input[maxlength="40"]:visible').last
                 title.wait_for(state="visible", timeout=5000)
                 title.fill(self.list_name)
-                self.page.get_by_text(re.compile(r"^(Create|יצירה)$")).last.click()
+                submit = self.page.locator('button[jsaction$=".done"]:visible').last
+                if not submit.count():
+                    submit = self.page.get_by_text(
+                        re.compile(r"^(Create|Done|יצירה|סיום)$")
+                    ).last
+                submit.click()
                 time.sleep(2)
             return self.set_list_description(description)
         except Exception as error:
@@ -285,6 +290,9 @@ class MapsImporter:
             editor = self.page.locator(
                 'input[aria-label="Label"]:visible,input[aria-label="תווית"]:visible'
             ).last
+            # Current Maps renders the private-label dialog input without ARIA.
+            if not editor.count():
+                editor = self.page.locator("input:visible").last
             editor.wait_for(state="visible", timeout=4000)
             editor.fill(name)
             editor.press("Enter")
