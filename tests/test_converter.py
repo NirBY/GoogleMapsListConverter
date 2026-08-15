@@ -2,6 +2,7 @@ from pathlib import Path
 import zipfile
 import pytest
 from google_maps_list_converter import (
+    MapsImporter,
     Place,
     build_note,
     create_verification_clip,
@@ -88,3 +89,18 @@ def test_timestamp_watermarked_verification_clip(tmp_path):
     first_frame = reader.get_data(0)
     reader.close()
     assert first_frame[-32:, :300].max() > 0
+
+
+def test_page_source_evidence_is_timestamped_and_grouped(tmp_path):
+    class Page:
+        @staticmethod
+        def content():
+            return "<html><body>real rendered content</body></html>"
+
+    importer = MapsImporter(Page(), "Layer / One", 0, True, tmp_path)
+    ok, message = importer.capture_page_source()
+    output = Path(message)
+    assert ok and output.parent.name == "Layer _ One"
+    source = output.read_text(encoding="utf-8")
+    assert source.startswith("<!-- Captured ")
+    assert "real rendered content" in source

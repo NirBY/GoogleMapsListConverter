@@ -37,7 +37,7 @@ VIEW_MORE_LISTS_SELECTOR = 'button[jsaction*="navigationrail.viewMore"]:visible'
 FIRST_RESULT_SELECTOR = 'a[href*="/maps/place/"]'
 NEW_LIST_PATTERN = re.compile(r"^(New list|רשימה חדשה)$")
 NEW_LIST_SELECTOR = 'button[aria-label="New list"],button[aria-label="רשימה חדשה"]'
-NOTE_ROW_XPATH = "xpath=ancestor::*[.//button[@aria-label='Add a note' or @aria-label='הוספה של הערה']][1]"
+NOTE_ROW_XPATH = "xpath=ancestor::*[.//button[@aria-label='Add note' or @aria-label='Add a note' or @aria-label='הוספה של הערה']][1]"
 LIST_TITLE_SELECTOR = 'input[maxlength="40"]:visible'
 LIST_SUBMIT_SELECTOR = 'button[jsaction$=".done"]:visible'
 LIST_CREATE_PATTERN = re.compile(r"^(Create|Done|יצירה|סיום)$")
@@ -45,12 +45,16 @@ LIST_DESCRIPTION_SELECTOR = (
     'textarea[aria-label="List description"]:visible,'
     'textarea[aria-label="תיאור הרשימה"]:visible'
 )
-LABEL_TRIGGER_PATTERN = re.compile(r"^(Add a label|New label|הוספת תווית|תווית חדשה)$")
+LABEL_TRIGGER_PATTERN = re.compile(
+    r"^(Add label|Add a label|New label|Edit your label|"
+    r"הוספת תווית|תווית חדשה|עריכת התווית שלך)$"
+)
 LABEL_INPUT_SELECTOR = (
     'input[jsaction="aliasEditor.select"]:visible,input.ZBTq6e:visible'
 )
 NOTE_BUTTON_SELECTOR = (
-    'button[aria-label="Add a note"],button[aria-label="הוספה של הערה"]'
+    'button[aria-label="Add note"],button[aria-label="Add a note"],'
+    'button[aria-label="הוספה של הערה"]'
 )
 NOTE_EDITOR_SELECTOR = (
     'textarea[aria-label="Note"]:visible,textarea[aria-label="הערה"]:visible'
@@ -374,6 +378,7 @@ class MapsImporter:
             editor.wait_for(state="visible", timeout=UI_TIMEOUT_MS)
             # Maps ignores fill() here; real keyboard events are required.
             editor.click()
+            editor.press("Control+A")
             editor.type(name, delay=20)
             editor.press("Enter")
             time.sleep(1.5)
@@ -403,11 +408,11 @@ class MapsImporter:
 
     def _note_trigger(self, place_name: str):
         """Find the note button in the row for this place, not merely row one."""
-        buttons = 'button[aria-label="Add a note"],button[aria-label="הוספה של הערה"]'
+        buttons = NOTE_BUTTON_SELECTOR
         named = self.page.get_by_text(place_name, exact=True).first
         if named.count():
             row = named.locator(
-                "xpath=ancestor::*[.//button[@aria-label='Add a note' or @aria-label='הוספה של הערה']][1]"
+                "xpath=ancestor::*[.//button[@aria-label='Add note' or @aria-label='Add a note' or @aria-label='הוספה של הערה']][1]"
             )
             if row.count():
                 return row.locator(buttons).first
@@ -481,12 +486,31 @@ class MapsImporter:
         if self.screenshot_dir is None:
             return True, "Skipped"
         try:
-            self.screenshot_dir.mkdir(parents=True, exist_ok=True)
-            path = self.screenshot_dir / f"maps-{time.time_ns()}.png"
+            evidence_dir = self.screenshot_dir / safe_file_component(self.list_name)
+            evidence_dir.mkdir(parents=True, exist_ok=True)
+            path = evidence_dir / f"maps-{time.time_ns()}.png"
             self.page.screenshot(path=str(path), full_page=False)
             return path.is_file(), str(path.resolve())
         except Exception as error:
             return False, "Screenshot failed: " + str(error).replace(chr(10), " ")[:180]
+
+    def capture_page_source(self) -> tuple[bool, str]:
+        """Save the current rendered page HTML as private local evidence."""
+        if self.screenshot_dir is None:
+            return True, "Skipped"
+        try:
+            evidence_dir = self.screenshot_dir / safe_file_component(self.list_name)
+            evidence_dir.mkdir(parents=True, exist_ok=True)
+            path = evidence_dir / f"maps-{time.time_ns()}.html"
+            captured = datetime.now().astimezone().isoformat(timespec="seconds")
+            source = f"<!-- Captured {captured} -->\n{self.page.content()}"
+            path.write_text(source, encoding="utf-8")
+            return path.is_file(), str(path.resolve())
+        except Exception as error:
+            return (
+                False,
+                "Page source failed: " + str(error).replace(chr(10), " ")[:180],
+            )
 
     def import_place(self, place: Place) -> dict[str, str]:
         self.search(place)
@@ -506,6 +530,7 @@ class MapsImporter:
             else "One or more content checks failed; inspect detailed statuses"
         )
         screenshot_ok, screenshot_message = self.capture_screenshot()
+        source_ok, source_message = self.capture_page_source()
         time.sleep(self.delay)
         return {
             "Status": "OK" if ok else "FAILED",
@@ -518,6 +543,8 @@ class MapsImporter:
             "VerificationMessage": verification_message,
             "ScreenshotStatus": "OK" if screenshot_ok else "FAILED",
             "ScreenshotPath": screenshot_message,
+            "PageSourceStatus": "OK" if source_ok else "FAILED",
+            "PageSourcePath": source_message,
         }
 
 
@@ -619,6 +646,8 @@ FIELDS = [
     "VerificationMessage",
     "ScreenshotStatus",
     "ScreenshotPath",
+    "PageSourceStatus",
+    "PageSourcePath",
 ]
 
 
@@ -697,19 +726,19 @@ def run(args) -> int:
                     print(
                         f"  -> {result['Status']}; label: {result['LabelStatus']}; note: {result['NoteStatus']}"
                     )
-            if video_dir and screenshot_root:
-                frame_dir = screenshot_root / safe_file_component(list_name)
-                output_path = video_dir / (safe_file_component(list_name) + ".mp4")
-                clip_ok, clip_message = create_verification_clip(
-                    frame_dir, output_path, args.video_fps
-                )
-                LOGGER.info(
-                    "Verification clip list=%r status=%s result=%s",
-                    list_name,
-                    "OK" if clip_ok else "FAILED",
-                    clip_message,
-                )
-                print(f"  clip: {'OK' if clip_ok else 'FAILED'} - {clip_message}")
+                if video_dir and screenshot_root:
+                    frame_dir = screenshot_root / safe_file_component(list_name)
+                    output_path = video_dir / (safe_file_component(list_name) + ".mp4")
+                    clip_ok, clip_message = create_verification_clip(
+                        frame_dir, output_path, args.video_fps
+                    )
+                    LOGGER.info(
+                        "Verification clip list=%r status=%s result=%s",
+                        list_name,
+                        "OK" if clip_ok else "FAILED",
+                        clip_message,
+                    )
+                    print(f"  clip: {'OK' if clip_ok else 'FAILED'} - {clip_message}")
     print(f"Finished: {ok} saved, {failed} failed\nAudit log: {args.log.resolve()}")
     return 1 if failed else 0
 
@@ -750,7 +779,7 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--no-media",
         action="store_true",
-        help="Disable automatic private PNG and MP4 verification evidence",
+        help="Disable automatic private PNG, HTML, and MP4 verification evidence",
     )
     return p
 

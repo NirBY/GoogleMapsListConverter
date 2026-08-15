@@ -138,14 +138,15 @@ Options:
 --screenshots DIR   PNG directory (default: verification-screenshots)
 --video-dir DIR    MP4 directory (default: verification-clips)
 --video-fps FPS    Clip speed (default: 2 frames/second)
---no-media         Disable automatic private PNG and MP4 evidence
+--no-media         Disable automatic private PNG, HTML, and MP4 evidence
 ```
 
-## Image and movie verification
+## Screenshot, page-source, and movie verification
 
-Verification media is created by default for every processed add or update, including failures:
+Private verification evidence is created by default for every processed add or update, including failures:
 
 - One PNG after each point's label/note handling
+- One timestamped HTML page-source snapshot after each point
 - One short MP4 per completed My Maps layer, containing that layer's point frames
 - A burned-in local timestamp and timezone watermark on every movie frame
 
@@ -159,9 +160,9 @@ python google_maps_list_converter.py "C:\path\to\my-map.kmz" `
   --video-fps 2
 ```
 
-The bundled `imageio-ffmpeg` dependency creates MP4 files; a separate system FFmpeg installation is not required. Use `--no-media` only when you explicitly want to disable both PNG and MP4 evidence.
+The bundled `imageio-ffmpeg` dependency creates MP4 files; a separate system FFmpeg installation is not required. Use `--no-media` only when you explicitly want to disable PNG, HTML page-source, and MP4 evidence.
 
-Media can expose private point names, notes, addresses, and account information. The default screenshot/video directories are ignored by Git. If you choose different directories, keep them outside Git or add them to `.gitignore`, and review every file before sharing it.
+Screenshots, page-source HTML, and movies can expose private point names, notes, addresses, account information, and other page content. The default screenshot/video directories are ignored by Git. If you choose different directories, keep them outside Git or add them to `.gitignore`, and review every file before sharing it.
 ## Logging and UI maintenance
 
 Python's standard `logging` module is used; no extra logging package is required. The default `INFO` level records normal progress to the console and `converter.log`. Use `--log-level DEBUG` when diagnosing Google Maps UI changes:
