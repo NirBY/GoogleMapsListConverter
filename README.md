@@ -135,22 +135,33 @@ Options:
 --cdp-url URL       Select a different Chrome debugging endpoint
 --log-level LEVEL   DEBUG, INFO (default), WARNING, or ERROR
 --debug-log FILE    Detailed UTF-8 diagnostic log (default: converter.log)
---screenshots DIR   Save private local verification PNGs
+--screenshots DIR   PNG directory (default: verification-screenshots)
+--video-dir DIR    MP4 directory (default: verification-clips)
+--video-fps FPS    Clip speed (default: 2 frames/second)
+--no-media         Disable automatic private PNG and MP4 evidence
 ```
 
-## Screenshots and content verification
+## Image and movie verification
 
-Screenshots are opt-in because they can expose private point names, notes, addresses, and account information. To capture local evidence for every processed point:
+Verification media is created by default for every processed add or update, including failures:
+
+- One PNG after each point's label/note handling
+- One short MP4 per completed My Maps layer, containing that layer's point frames
+- A burned-in local timestamp and timezone watermark on every movie frame
+
+Default private output directories are `verification-screenshots/` and `verification-clips/`. Change the locations or clip speed when needed:
 
 ```powershell
 python google_maps_list_converter.py "C:\path\to\my-map.kmz" `
   --list-prefix "Cyprus 2026" `
-  --screenshots "verification-screenshots"
+  --screenshots "verification-screenshots" `
+  --video-dir "verification-clips" `
+  --video-fps 2
 ```
 
-The importer verifies retained list-description, private-label, and note values through the rendered Maps controls. The CSV adds `VerificationStatus`, `VerificationMessage`, `ScreenshotStatus`, and `ScreenshotPath`. A screenshot is taken after each point's label/note handling so failures have visual evidence too.
+The bundled `imageio-ffmpeg` dependency creates MP4 files; a separate system FFmpeg installation is not required. Use `--no-media` only when you explicitly want to disable both PNG and MP4 evidence.
 
-`verification-screenshots/` and `screenshots/` are ignored by Git. If you select a different directory, keep it outside Git or add it to `.gitignore`. Review every image before sharing it.
+Media can expose private point names, notes, addresses, and account information. The default screenshot/video directories are ignored by Git. If you choose different directories, keep them outside Git or add them to `.gitignore`, and review every file before sharing it.
 ## Logging and UI maintenance
 
 Python's standard `logging` module is used; no extra logging package is required. The default `INFO` level records normal progress to the console and `converter.log`. Use `--log-level DEBUG` when diagnosing Google Maps UI changes:

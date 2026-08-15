@@ -12,6 +12,7 @@ import time
 import zipfile
 from collections import OrderedDict
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Iterable
 from urllib.parse import quote
@@ -172,6 +173,12 @@ def make_list_name(prefix: str, layer: str, limit: int = LIST_NAME_LIMIT) -> str
     if len(suffix) < limit:
         return prefix[: limit - len(suffix)].rstrip() + suffix
     return layer[:limit].rstrip()
+
+
+def safe_file_component(value: str, limit: int = 80) -> str:
+    """Create a Windows-safe local evidence filename without changing list text."""
+    cleaned = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", normalize(value))
+    return (cleaned.strip(" .") or "unnamed")[:limit]
 
 
 def parse_kmz_description(path: Path) -> str:
@@ -514,6 +521,58 @@ class MapsImporter:
         }
 
 
+def create_verification_clip(
+    frame_dir: Path, output_path: Path, fps: float = 2.0
+) -> tuple[bool, str]:
+    """Encode a timestamp-watermarked private MP4 from one layer's frames."""
+    frames = sorted(frame_dir.glob("*.png"))
+    if not frames:
+        return False, f"No PNG frames found in {frame_dir}"
+    try:
+        import imageio.v2 as imageio
+        import numpy as np
+        from PIL import Image, ImageDraw
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with imageio.get_writer(
+            output_path,
+            fps=fps,
+            codec="libx264",
+            quality=7,
+            macro_block_size=2,
+        ) as writer:
+            for frame in frames:
+                captured = (
+                    datetime.fromtimestamp(frame.stat().st_mtime)
+                    .astimezone()
+                    .strftime("%Y-%m-%d %H:%M:%S %Z")
+                )
+                image = Image.open(frame).convert("RGB")
+                draw = ImageDraw.Draw(image, "RGBA")
+                label = f"Verified {captured}"
+                left, top, right, bottom = draw.textbbox((0, 0), label)
+                padding = 10
+                box_height = bottom - top + padding * 2
+                draw.rectangle(
+                    (
+                        0,
+                        image.height - box_height,
+                        right - left + padding * 2,
+                        image.height,
+                    ),
+                    fill=(0, 0, 0, 170),
+                )
+                draw.text(
+                    (padding, image.height - box_height + padding - top),
+                    label,
+                    fill=(255, 255, 255, 255),
+                )
+                writer.append_data(np.asarray(image))
+        return output_path.is_file(), str(output_path.resolve())
+    except Exception as error:
+        return False, "Video encoding failed: " + str(error).replace(chr(10), " ")[:240]
+
+
 def preview(groups: OrderedDict[str, list[Place]], prefix: str) -> None:
     """Show list names and counts without exposing private descriptions."""
     print(f"Parsed {sum(map(len,groups.values()))} placemarks into {len(groups)} lists")
@@ -574,6 +633,8 @@ def run(args) -> int:
     except ImportError as error:
         raise RuntimeError("Run: pip install -r requirements.txt") from error
     ok = failed = 0
+    screenshot_root = None if args.no_media else args.screenshots
+    video_dir = None if args.no_media else args.video_dir
     with sync_playwright() as playwright:
         browser = playwright.chromium.connect_over_cdp(args.cdp_url)
         if not browser.contexts:
@@ -589,7 +650,7 @@ def run(args) -> int:
             for layer, places in groups.items():
                 list_name = make_list_name(prefix, layer)
                 importer = MapsImporter(
-                    page, list_name, args.delay, not args.no_notes, args.screenshots
+                    page, list_name, args.delay, not args.no_notes, screenshot_root
                 )
                 list_ok, list_message = importer.ensure_list(description)
                 print(
@@ -636,6 +697,19 @@ def run(args) -> int:
                     print(
                         f"  -> {result['Status']}; label: {result['LabelStatus']}; note: {result['NoteStatus']}"
                     )
+            if video_dir and screenshot_root:
+                frame_dir = screenshot_root / safe_file_component(list_name)
+                output_path = video_dir / (safe_file_component(list_name) + ".mp4")
+                clip_ok, clip_message = create_verification_clip(
+                    frame_dir, output_path, args.video_fps
+                )
+                LOGGER.info(
+                    "Verification clip list=%r status=%s result=%s",
+                    list_name,
+                    "OK" if clip_ok else "FAILED",
+                    clip_message,
+                )
+                print(f"  clip: {'OK' if clip_ok else 'FAILED'} - {clip_message}")
     print(f"Finished: {ok} saved, {failed} failed\nAudit log: {args.log.resolve()}")
     return 1 if failed else 0
 
@@ -658,7 +732,25 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--screenshots",
         type=Path,
-        help="Save private local verification PNGs in this directory",
+        default=Path("verification-screenshots"),
+        help="Verification PNG directory (default: verification-screenshots)",
+    )
+    p.add_argument(
+        "--video-dir",
+        type=Path,
+        default=Path("verification-clips"),
+        help="Create one private MP4 verification clip per layer",
+    )
+    p.add_argument(
+        "--video-fps",
+        type=float,
+        default=2.0,
+        help="Verification clip frame rate (default: 2)",
+    )
+    p.add_argument(
+        "--no-media",
+        action="store_true",
+        help="Disable automatic private PNG and MP4 verification evidence",
     )
     return p
 

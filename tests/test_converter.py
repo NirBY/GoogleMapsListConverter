@@ -4,6 +4,7 @@ import pytest
 from google_maps_list_converter import (
     Place,
     build_note,
+    create_verification_clip,
     description_to_text,
     group_places_by_layer,
     make_list_name,
@@ -66,3 +67,24 @@ def test_html_cleanup_and_note_limit():
 def test_screenshot_cli_option():
     args = parser().parse_args(["map.kmz", "--screenshots", "verification-screenshots"])
     assert args.screenshots == Path("verification-screenshots")
+    assert args.video_dir == Path("verification-clips")
+    assert args.video_fps == 2.0
+    assert not args.no_media
+
+
+def test_timestamp_watermarked_verification_clip(tmp_path):
+    import imageio.v2 as imageio
+    import numpy as np
+
+    frames = tmp_path / "frames"
+    frames.mkdir()
+    imageio.imwrite(frames / "001.png", np.zeros((128, 512, 3), dtype=np.uint8))
+    imageio.imwrite(frames / "002.png", np.full((128, 512, 3), 255, dtype=np.uint8))
+    output = tmp_path / "clip.mp4"
+    ok, message = create_verification_clip(frames, output, fps=2)
+    assert ok, message
+    assert output.stat().st_size > 0
+    reader = imageio.get_reader(output)
+    first_frame = reader.get_data(0)
+    reader.close()
+    assert first_frame[-32:, :300].max() > 0
