@@ -513,6 +513,7 @@ class MapsImporter:
             )
 
     def import_place(self, place: Place) -> dict[str, str]:
+        """Import one point, verify its metadata, and preserve local evidence."""
         self.search(place)
         ok, message, newly_saved = self.save()
         label_ok, label_message = (
@@ -529,6 +530,7 @@ class MapsImporter:
             if verification_ok
             else "One or more content checks failed; inspect detailed statuses"
         )
+        # Capture both visual and inspectable evidence after metadata handling.
         screenshot_ok, screenshot_message = self.capture_screenshot()
         source_ok, source_message = self.capture_page_source()
         time.sleep(self.delay)
@@ -726,6 +728,7 @@ def run(args) -> int:
                     print(
                         f"  -> {result['Status']}; label: {result['LabelStatus']}; note: {result['NoteStatus']}"
                     )
+                # Keep each layer's movie separate, matching its Google Maps list.
                 if video_dir and screenshot_root:
                     frame_dir = screenshot_root / safe_file_component(list_name)
                     output_path = video_dir / (safe_file_component(list_name) + ".mp4")

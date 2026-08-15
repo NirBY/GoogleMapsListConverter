@@ -66,6 +66,10 @@ The language of the KMZ content and point names may be different; this limitatio
 Before importing, open Google Maps in the dedicated Chrome profile and set the interface language to English or Hebrew. In Maps, open the main menu, choose **Language / שפה**, select **English** or **עברית**, and wait for Maps to reload. Do not change the language while an import is running.
 
 Other interface languages are unsupported and may cause list creation, saving, labels, or notes to fail. To support another language, add its localized patterns/selectors to the configuration section at the top of `google_maps_list_converter.py` and verify the complete import flow before use.
+## Verified compatibility
+
+The English interface was validated end to end with 10 newly added real KMZ points distributed across 9 source layers. The run verified list separation, named-place matching, coordinate fallback labels, available KMZ comments, per-point PNG and HTML evidence, and one timestamp-watermarked MP4 per layer. Hebrew remains supported by the same localized selectors and test coverage.
+
 ## Import instructions
 
 ### 1. Export My Maps
