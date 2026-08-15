@@ -24,6 +24,8 @@ MAPS_URL = "https://www.google.com/maps"
 NOTE_LIMIT = 4000
 LIST_NAME_LIMIT = 40
 UI_TIMEOUT_MS = 5000
+SAVE_PICKER_RETRIES = 3
+LIST_SYNC_SECONDS = 5
 SAVE_SELECTOR = (
     'button[aria-label^="Save"],button[aria-label="Saved"],'
     'button[aria-label^="שמירה"],button[aria-label="נשמר"]'
@@ -33,6 +35,7 @@ SAVED_NAV_SELECTOR = 'button[jsaction="navigationrail.saved"]'
 VIEW_MORE_LISTS_SELECTOR = 'button[jsaction*="navigationrail.viewMore"]:visible'
 FIRST_RESULT_SELECTOR = 'a[href*="/maps/place/"]'
 NEW_LIST_PATTERN = re.compile(r"^(New list|רשימה חדשה)$")
+NEW_LIST_SELECTOR = 'button[aria-label="New list"],button[aria-label="רשימה חדשה"]'
 NOTE_ROW_XPATH = "xpath=ancestor::*[.//button[@aria-label='Add a note' or @aria-label='הוספה של הערה']][1]"
 LIST_TITLE_SELECTOR = 'input[maxlength="40"]:visible'
 LIST_SUBMIT_SELECTOR = 'button[jsaction$=".done"]:visible'
@@ -267,7 +270,7 @@ class MapsImporter:
                 )
             if match_count == 0:
                 LOGGER.info("Creating missing list %r", self.list_name)
-                self.page.get_by_text(NEW_LIST_PATTERN).last.click()
+                self.page.locator(NEW_LIST_SELECTOR).last.click()
                 title = self.page.locator(LIST_TITLE_SELECTOR).last
                 title.wait_for(state="visible", timeout=UI_TIMEOUT_MS)
                 title.fill(self.list_name)
@@ -308,19 +311,29 @@ class MapsImporter:
             self._first_result()
 
     def save(self) -> tuple[bool, str, bool]:
-        """Save to the selected list and report whether a new row was added."""
-        try:
-            self._button().wait_for(state="visible", timeout=5000)
-            self._button().click()
-        except Exception:
-            return False, "No savable Google place or coordinate pin found", False
-        time.sleep(1)
-        label = self.page.get_by_text(self.list_name, exact=True).last
-        try:
-            label.wait_for(state="visible", timeout=5000)
-        except Exception:
-            self.page.keyboard.press("Escape")
-            return False, f'Target list "{self.list_name}" not found', False
+        """Save to the list, retrying while a newly created list propagates."""
+        for attempt in range(1, SAVE_PICKER_RETRIES + 1):
+            try:
+                self._button().wait_for(state="visible", timeout=UI_TIMEOUT_MS)
+                self._button().click()
+            except Exception:
+                return False, "No savable Google place or coordinate pin found", False
+            time.sleep(1)
+            label = self.page.get_by_text(self.list_name, exact=True).last
+            try:
+                label.wait_for(state="visible", timeout=UI_TIMEOUT_MS)
+                break
+            except Exception:
+                self.page.keyboard.press("Escape")
+                LOGGER.warning(
+                    "Save picker missing list=%r attempt=%d/%d",
+                    self.list_name,
+                    attempt,
+                    SAVE_PICKER_RETRIES,
+                )
+                if attempt == SAVE_PICKER_RETRIES:
+                    return False, f'Target list "{self.list_name}" not found', False
+                time.sleep(2)
         row = label.locator(self.ROW)
         target = row if row.count() else label
         already = target.get_attribute("aria-checked") == "true"
