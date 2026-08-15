@@ -28,3 +28,6 @@ README_google_maps_chrome.txt
 *.crdownload
 *.exe
 *.log
+# Screenshots may contain private map content.
+verification-screenshots/
+screenshots/

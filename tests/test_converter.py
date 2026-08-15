@@ -1,3 +1,4 @@
+from pathlib import Path
 import zipfile
 import pytest
 from google_maps_list_converter import (
@@ -9,6 +10,7 @@ from google_maps_list_converter import (
     parse_kml,
     parse_kmz,
     parse_kmz_description,
+    parser,
 )
 
 KML = b"""<?xml version="1.0" encoding="UTF-8"?><kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>Trip</name><description>General</description><Folder><name>Food</name><Folder><name>Cafes</name><Placemark><name>Example Cafe</name><description>Try &lt;b&gt;cake&lt;/b&gt;&lt;br&gt;Open early</description><Point><coordinates>33.1234,34.9876,0</coordinates></Point></Placemark></Folder></Folder><Placemark><name>Line</name><LineString><coordinates>1,2</coordinates></LineString></Placemark></Document></kml>"""
@@ -59,3 +61,8 @@ def test_html_cleanup_and_note_limit():
     assert description_to_text("A&amp;B<div>Next</div>") == "A&BNext"
     note = build_note("x" * 100, limit=30)
     assert len(note) == 30 and note.endswith("…")
+
+
+def test_screenshot_cli_option():
+    args = parser().parse_args(["map.kmz", "--screenshots", "verification-screenshots"])
+    assert args.screenshots == Path("verification-screenshots")

@@ -216,12 +216,20 @@ class MapsImporter:
     SAVE = SAVE_SELECTOR
     ROW = SAVE_ROW_SELECTOR
 
-    def __init__(self, page, list_name: str, delay: float = 2.0, notes: bool = True):
+    def __init__(
+        self,
+        page,
+        list_name: str,
+        delay: float = 2.0,
+        notes: bool = True,
+        screenshot_dir: Path | None = None,
+    ):
         self.page = page
         self.list_name = list_name
         self.delay = delay
         self.notes = notes
         self.coordinate_fallback = False
+        self.screenshot_dir = screenshot_dir
 
     def _button(self):
         return self.page.locator(self.SAVE).last
@@ -461,6 +469,18 @@ class MapsImporter:
                 "List description failed: " + str(error).replace(chr(10), " ")[:180],
             )
 
+    def capture_screenshot(self) -> tuple[bool, str]:
+        """Capture private local evidence without placing it in Git."""
+        if self.screenshot_dir is None:
+            return True, "Skipped"
+        try:
+            self.screenshot_dir.mkdir(parents=True, exist_ok=True)
+            path = self.screenshot_dir / f"maps-{time.time_ns()}.png"
+            self.page.screenshot(path=str(path), full_page=False)
+            return path.is_file(), str(path.resolve())
+        except Exception as error:
+            return False, "Screenshot failed: " + str(error).replace(chr(10), " ")[:180]
+
     def import_place(self, place: Place) -> dict[str, str]:
         self.search(place)
         ok, message, newly_saved = self.save()
@@ -472,6 +492,13 @@ class MapsImporter:
             if ok
             else (False, "Not attempted")
         )
+        verification_ok = ok and label_ok and note_ok
+        verification_message = (
+            "Saved place, label, and note values verified"
+            if verification_ok
+            else "One or more content checks failed; inspect detailed statuses"
+        )
+        screenshot_ok, screenshot_message = self.capture_screenshot()
         time.sleep(self.delay)
         return {
             "Status": "OK" if ok else "FAILED",
@@ -480,6 +507,10 @@ class MapsImporter:
             "LabelMessage": label_message,
             "NoteStatus": "OK" if note_ok else "FAILED",
             "NoteMessage": note_message,
+            "VerificationStatus": "OK" if verification_ok else "FAILED",
+            "VerificationMessage": verification_message,
+            "ScreenshotStatus": "OK" if screenshot_ok else "FAILED",
+            "ScreenshotPath": screenshot_message,
         }
 
 
@@ -525,6 +556,10 @@ FIELDS = [
     "LabelMessage",
     "NoteStatus",
     "NoteMessage",
+    "VerificationStatus",
+    "VerificationMessage",
+    "ScreenshotStatus",
+    "ScreenshotPath",
 ]
 
 
@@ -553,7 +588,9 @@ def run(args) -> int:
             index = 0
             for layer, places in groups.items():
                 list_name = make_list_name(prefix, layer)
-                importer = MapsImporter(page, list_name, args.delay, not args.no_notes)
+                importer = MapsImporter(
+                    page, list_name, args.delay, not args.no_notes, args.screenshots
+                )
                 list_ok, list_message = importer.ensure_list(description)
                 print(
                     f"List {list_name}: {'OK' if list_ok else 'FAILED'} - {list_message}"
@@ -618,6 +655,11 @@ def parser() -> argparse.ArgumentParser:
         "--log-level", choices=("DEBUG", "INFO", "WARNING", "ERROR"), default="INFO"
     )
     p.add_argument("--debug-log", type=Path, default=Path("converter.log"))
+    p.add_argument(
+        "--screenshots",
+        type=Path,
+        help="Save private local verification PNGs in this directory",
+    )
     return p
 
 

@@ -119,8 +119,22 @@ Options:
 --cdp-url URL       Select a different Chrome debugging endpoint
 --log-level LEVEL   DEBUG, INFO (default), WARNING, or ERROR
 --debug-log FILE    Detailed UTF-8 diagnostic log (default: converter.log)
+--screenshots DIR   Save private local verification PNGs
 ```
 
+## Screenshots and content verification
+
+Screenshots are opt-in because they can expose private point names, notes, addresses, and account information. To capture local evidence for every processed point:
+
+```powershell
+python google_maps_list_converter.py "C:\path\to\my-map.kmz" `
+  --list-prefix "Cyprus 2026" `
+  --screenshots "verification-screenshots"
+```
+
+The importer verifies retained list-description, private-label, and note values through the rendered Maps controls. The CSV adds `VerificationStatus`, `VerificationMessage`, `ScreenshotStatus`, and `ScreenshotPath`. A screenshot is taken after each point's label/note handling so failures have visual evidence too.
+
+`verification-screenshots/` and `screenshots/` are ignored by Git. If you select a different directory, keep it outside Git or add it to `.gitignore`. Review every image before sharing it.
 ## Logging and UI maintenance
 
 Python's standard `logging` module is used; no extra logging package is required. The default `INFO` level records normal progress to the console and `converter.log`. Use `--log-level DEBUG` when diagnosing Google Maps UI changes:
