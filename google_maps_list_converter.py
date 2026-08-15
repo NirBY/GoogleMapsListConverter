@@ -242,6 +242,10 @@ class MapsImporter:
         self.page.locator(SAVED_NAV_SELECTOR).click()
         time.sleep(1)
 
+    def _saved_list_matches(self):
+        """Match list cards by contained text; Maps wraps names with icons/counts."""
+        return self.page.locator("button").filter(has_text=self.list_name)
+
     def ensure_list(self, description: str = "") -> tuple[bool, str]:
         """Reuse an exact-name list; create only after exhaustive discovery."""
         try:
@@ -251,7 +255,7 @@ class MapsImporter:
                 view_more.last.click()
                 time.sleep(1.5)
 
-            matches = self.page.get_by_text(self.list_name, exact=True)
+            matches = self._saved_list_matches()
             match_count = matches.count()
             LOGGER.debug(
                 "List discovery name=%r matches=%d", self.list_name, match_count
@@ -393,7 +397,7 @@ class MapsImporter:
             )
         try:
             self.open_saved()
-            self.page.get_by_text(self.list_name, exact=True).last.click()
+            self._saved_list_matches().last.click()
             time.sleep(2)
             trigger = self._note_trigger(place_name)
             trigger.wait_for(state="visible", timeout=5000)
@@ -424,7 +428,7 @@ class MapsImporter:
             return True, "Skipped"
         try:
             self.open_saved()
-            self.page.get_by_text(self.list_name, exact=True).last.click()
+            self._saved_list_matches().last.click()
             time.sleep(1)
             editor = self.page.locator(
                 'textarea[aria-label="List description"]:visible,textarea[aria-label="תיאור הרשימה"]:visible'
