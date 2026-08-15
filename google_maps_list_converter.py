@@ -308,16 +308,17 @@ class MapsImporter:
         self.page.keyboard.press("Escape")
         return True, "Already saved" if already else "Saved", not already
 
-    def set_private_label(self, name: str) -> tuple[bool, str]:
-        """Give coordinate-only pins their original KMZ name in Google Maps."""
+    def set_private_label(self, place: Place) -> tuple[bool, str]:
+        """Give coordinate-only pins their original KMZ name and verify it."""
         if not self.coordinate_fallback:
             return True, "Not needed"
+        name = place.name
         if self.page.get_by_text(name, exact=True).count():
             LOGGER.debug("Private label already present: %r", name)
             return True, "Already labeled"
         try:
             trigger = self.page.get_by_text(LABEL_TRIGGER_PATTERN).last
-            trigger.wait_for(state="visible", timeout=4000)
+            trigger.wait_for(state="visible", timeout=UI_TIMEOUT_MS)
             trigger.click()
             editor = self.page.locator(LABEL_INPUT_SELECTOR).last
             editor.wait_for(state="visible", timeout=UI_TIMEOUT_MS)
@@ -326,8 +327,21 @@ class MapsImporter:
             editor.type(name, delay=20)
             editor.press("Enter")
             time.sleep(1.5)
-            persisted = self.page.get_by_text(name, exact=True).count() > 0
-            LOGGER.debug("Private label name=%r persisted=%s", name, persisted)
+
+            # Maps renders labels asynchronously; reopen before verification.
+            coordinates = f"{place.latitude},{place.longitude}"
+            self.page.goto(
+                MAPS_URL + "/search/?api=1&query=" + quote(coordinates),
+                wait_until="domcontentloaded",
+                timeout=30000,
+            )
+            time.sleep(2)
+            persisted = name in self.page.locator("body").inner_text()
+            LOGGER.debug(
+                "Private label reopen verification name=%r persisted=%s",
+                name,
+                persisted,
+            )
             return persisted, (
                 "Added" if persisted else "Google Maps did not retain the private label"
             )
@@ -416,7 +430,7 @@ class MapsImporter:
         self.search(place)
         ok, message, newly_saved = self.save()
         label_ok, label_message = (
-            self.set_private_label(place.name) if ok else (False, "Not attempted")
+            self.set_private_label(place) if ok else (False, "Not attempted")
         )
         note_ok, note_message = (
             self.add_note(place.note, place.name, newly_saved)
