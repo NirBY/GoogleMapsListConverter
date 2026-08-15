@@ -312,6 +312,9 @@ class MapsImporter:
         """Give coordinate-only pins their original KMZ name in Google Maps."""
         if not self.coordinate_fallback:
             return True, "Not needed"
+        if self.page.get_by_text(name, exact=True).count():
+            LOGGER.debug("Private label already present: %r", name)
+            return True, "Already labeled"
         try:
             trigger = self.page.get_by_text(LABEL_TRIGGER_PATTERN).last
             trigger.wait_for(state="visible", timeout=4000)
