@@ -104,13 +104,28 @@ Options:
 --delay 3           Wait three seconds between points
 --log FILE.csv      Select the audit-log path
 --cdp-url URL       Select a different Chrome debugging endpoint
+--log-level LEVEL   DEBUG, INFO (default), WARNING, or ERROR`r`n--debug-log FILE    Detailed UTF-8 diagnostic log (default: converter.log)
 ```
 
+## Logging and UI maintenance
+
+Python's standard `logging` module is used; no extra logging package is required. The default `INFO` level records normal progress to the console and `converter.log`. Use `--log-level DEBUG` when diagnosing Google Maps UI changes:
+
+```powershell
+python google_maps_list_converter.py "C:\path\to\my-map.kmz" `
+  --list-prefix "Cyprus 2026" `
+  --log-level DEBUG `
+  --debug-log "converter-debug.log"
+```
+
+Use `WARNING` or `ERROR` for quieter output. Diagnostic `.log` files are ignored by Git. The CSV audit remains the per-point result report and contains separate `Status`, `LabelStatus`, and `NoteStatus` columns.
+
+All change-prone Google Maps selectors, localized English/Hebrew text patterns, timeouts, URLs, and limits are defined together at the top of `google_maps_list_converter.py`. Update that configuration section first when Google changes its interface.
 ## Notes, labels, and reruns
 
 The importer locates the specific saved-list row by point name before adding its note. This avoids the earlier bug where comments after the first few points could be attached to the wrong row.
 
-When name search fails, the importer saves the coordinate pin and adds the original KMZ point name using Google Maps' **private label** feature. `LabelStatus` in the audit CSV reports whether that succeeded.
+When name search fails, the importer saves the coordinate pin and adds the original KMZ point name using Google Maps' **private label** feature. This editor requires real keyboard events (typing plus Enter); programmatic form filling is ignored by Maps. The importer verifies the resulting label before reporting `LabelStatus=OK`.
 
 For safety, a rerun does not add a note to an item already present in the target list: Google Maps does not expose a stable entry identifier, and guessing could overwrite another point's note. Use fresh generated lists for a clean full import, or inspect `NoteStatus` in the audit log for manual retries.
 

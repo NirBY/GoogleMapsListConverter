@@ -2,7 +2,14 @@
 """Import Google My Maps KMZ point layers into Google Maps Saved Lists."""
 
 from __future__ import annotations
-import argparse, csv, html, re, sys, time, zipfile
+import argparse
+import csv
+import html
+import logging
+import re
+import sys
+import time
+import zipfile
 from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
@@ -10,9 +17,40 @@ from typing import Iterable
 from urllib.parse import quote
 from xml.etree import ElementTree as ET
 
+# Stable configuration and change-prone Google Maps UI selectors live here.
 KML_NS = {"kml": "http://www.opengis.net/kml/2.2"}
 DEFAULT_CDP_URL = "http://127.0.0.1:9222"
+MAPS_URL = "https://www.google.com/maps"
 NOTE_LIMIT = 4000
+LIST_NAME_LIMIT = 40
+UI_TIMEOUT_MS = 5000
+SAVE_SELECTOR = (
+    'button[aria-label^="Save"],button[aria-label="Saved"],'
+    'button[aria-label^="שמירה"],button[aria-label="נשמר"]'
+)
+SAVE_ROW_SELECTOR = "xpath=ancestor-or-self::*[@role='menuitemradio' or @role='menuitemcheckbox' or @role='checkbox'][1]"
+SAVED_NAV_SELECTOR = 'button[jsaction="navigationrail.saved"]'
+FIRST_RESULT_SELECTOR = 'a[href*="/maps/place/"]'
+NEW_LIST_PATTERN = re.compile(r"^(New list|רשימה חדשה)$")
+NOTE_ROW_XPATH = "xpath=ancestor::*[.//button[@aria-label='Add a note' or @aria-label='הוספה של הערה']][1]"
+LIST_TITLE_SELECTOR = 'input[maxlength="40"]:visible'
+LIST_SUBMIT_SELECTOR = 'button[jsaction$=".done"]:visible'
+LIST_CREATE_PATTERN = re.compile(r"^(Create|Done|יצירה|סיום)$")
+LIST_DESCRIPTION_SELECTOR = (
+    'textarea[aria-label="List description"]:visible,'
+    'textarea[aria-label="תיאור הרשימה"]:visible'
+)
+LABEL_TRIGGER_PATTERN = re.compile(r"^(Add a label|New label|הוספת תווית|תווית חדשה)$")
+LABEL_INPUT_SELECTOR = (
+    'input[jsaction="aliasEditor.select"]:visible,input.ZBTq6e:visible'
+)
+NOTE_BUTTON_SELECTOR = (
+    'button[aria-label="Add a note"],button[aria-label="הוספה של הערה"]'
+)
+NOTE_EDITOR_SELECTOR = (
+    'textarea[aria-label="Note"]:visible,textarea[aria-label="הערה"]:visible'
+)
+LOGGER = logging.getLogger("google_maps_list_converter")
 
 
 @dataclass(frozen=True)
@@ -121,7 +159,7 @@ def group_places_by_layer(places: list[Place]) -> OrderedDict[str, list[Place]]:
     )
 
 
-def make_list_name(prefix: str, layer: str, limit: int = 40) -> str:
+def make_list_name(prefix: str, layer: str, limit: int = LIST_NAME_LIMIT) -> str:
     prefix, layer = normalize(prefix), normalize(layer)
     candidate = f"{prefix} — {layer}" if prefix else layer
     if len(candidate) <= limit:
@@ -171,11 +209,8 @@ def parse_kmz_name(path: Path) -> str:
 class MapsImporter:
     """Drive the current Google Maps web UI through a signed-in Chrome tab."""
 
-    SAVE = (
-        'button[aria-label^="Save"],button[aria-label="Saved"],'
-        'button[aria-label^="שמירה"],button[aria-label="נשמר"]'
-    )
-    ROW = "xpath=ancestor-or-self::*[@role='menuitemradio' or @role='menuitemcheckbox' or @role='checkbox'][1]"
+    SAVE = SAVE_SELECTOR
+    ROW = SAVE_ROW_SELECTOR
 
     def __init__(self, page, list_name: str, delay: float = 2.0, notes: bool = True):
         self.page = page
@@ -194,7 +229,7 @@ class MapsImporter:
             return False
 
     def _first_result(self) -> None:
-        result = self.page.locator('a[href*="/maps/place/"]').first
+        result = self.page.locator(FIRST_RESULT_SELECTOR).first
         try:
             if result.is_visible(timeout=1500):
                 result.click()
@@ -203,7 +238,7 @@ class MapsImporter:
             pass
 
     def open_saved(self) -> None:
-        self.page.locator('button[jsaction="navigationrail.saved"]').click()
+        self.page.locator(SAVED_NAV_SELECTOR).click()
         time.sleep(1)
 
     def ensure_list(self, description: str = "") -> tuple[bool, str]:
@@ -212,17 +247,13 @@ class MapsImporter:
             self.open_saved()
             existing = self.page.get_by_text(self.list_name, exact=True).last
             if not existing.is_visible(timeout=1200):
-                self.page.get_by_text(
-                    re.compile(r"^(New list|רשימה חדשה)$")
-                ).last.click()
-                title = self.page.locator('input[maxlength="40"]:visible').last
+                self.page.get_by_text(NEW_LIST_PATTERN).last.click()
+                title = self.page.locator(LIST_TITLE_SELECTOR).last
                 title.wait_for(state="visible", timeout=5000)
                 title.fill(self.list_name)
-                submit = self.page.locator('button[jsaction$=".done"]:visible').last
+                submit = self.page.locator(LIST_SUBMIT_SELECTOR).last
                 if not submit.count():
-                    submit = self.page.get_by_text(
-                        re.compile(r"^(Create|Done|יצירה|סיום)$")
-                    ).last
+                    submit = self.page.get_by_text(LIST_CREATE_PATTERN).last
                 submit.click()
                 time.sleep(2)
             return self.set_list_description(description)
@@ -282,22 +313,21 @@ class MapsImporter:
         if not self.coordinate_fallback:
             return True, "Not needed"
         try:
-            trigger = self.page.get_by_text(
-                re.compile(r"^(Add a label|New label|הוספת תווית|תווית חדשה)$")
-            ).last
+            trigger = self.page.get_by_text(LABEL_TRIGGER_PATTERN).last
             trigger.wait_for(state="visible", timeout=4000)
             trigger.click()
-            editor = self.page.locator(
-                'input[aria-label="Label"]:visible,input[aria-label="תווית"]:visible'
-            ).last
-            # Current Maps renders the private-label dialog input without ARIA.
-            if not editor.count():
-                editor = self.page.locator("input:visible").last
-            editor.wait_for(state="visible", timeout=4000)
-            editor.fill(name)
+            editor = self.page.locator(LABEL_INPUT_SELECTOR).last
+            editor.wait_for(state="visible", timeout=UI_TIMEOUT_MS)
+            # Maps ignores fill() here; real keyboard events are required.
+            editor.click()
+            editor.type(name, delay=20)
             editor.press("Enter")
-            time.sleep(1)
-            return True, "Added"
+            time.sleep(1.5)
+            persisted = self.page.get_by_text(name, exact=True).count() > 0
+            LOGGER.debug("Private label name=%r persisted=%s", name, persisted)
+            return persisted, (
+                "Added" if persisted else "Google Maps did not retain the private label"
+            )
         except Exception as error:
             return (
                 False,
@@ -532,7 +562,26 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--log", type=Path, default=Path("google_maps_import_log.csv"))
     p.add_argument("--no-notes", action="store_true")
     p.add_argument("--dry-run", action="store_true")
+    p.add_argument(
+        "--log-level", choices=("DEBUG", "INFO", "WARNING", "ERROR"), default="INFO"
+    )
+    p.add_argument("--debug-log", type=Path, default=Path("converter.log"))
     return p
+
+
+def configure_logging(level: str, log_file: Path) -> None:
+    """Configure console and UTF-8 file diagnostics with adjustable levels."""
+    formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+    file_handler = logging.FileHandler(log_file, encoding="utf-8")
+    file_handler.setFormatter(formatter)
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+    logging.basicConfig(
+        level=getattr(logging, level.upper()),
+        handlers=[file_handler, console_handler],
+        force=True,
+    )
+    LOGGER.debug("Logging initialized: level=%s file=%s", level, log_file.resolve())
 
 
 def main(argv=None) -> int:
@@ -540,7 +589,9 @@ def main(argv=None) -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
     try:
-        return run(parser().parse_args(argv))
+        args = parser().parse_args(argv)
+        configure_logging(args.log_level, args.debug_log)
+        return run(args)
     except (OSError, ValueError, zipfile.BadZipFile, RuntimeError) as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return 2

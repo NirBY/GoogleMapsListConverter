@@ -27,3 +27,4 @@ import_mymaps_to_google_list_chrome.py
 README_google_maps_chrome.txt
 *.crdownload
 *.exe
+*.log
