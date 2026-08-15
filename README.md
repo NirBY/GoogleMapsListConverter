@@ -32,11 +32,24 @@ The repository ignores KMZ/KML files, generated CSV/log files, Chrome automation
 - Python 3.10+
 - Google Chrome
 - A Google account signed in to Google Maps
+- Google Maps web interface set to **English or Hebrew only**
 
 ```powershell
 python -m pip install -r requirements.txt
 ```
 
+## Supported Google Maps languages
+
+The browser automation currently supports only these Google Maps interface languages:
+
+- English
+- Hebrew (עברית)
+
+The language of the KMZ content and point names may be different; this limitation applies only to Google Maps buttons, dialogs, and accessibility labels used by the automation.
+
+Before importing, open Google Maps in the dedicated Chrome profile and set the interface language to English or Hebrew. In Maps, open the main menu, choose **Language / שפה**, select **English** or **עברית**, and wait for Maps to reload. Do not change the language while an import is running.
+
+Other interface languages are unsupported and may cause list creation, saving, labels, or notes to fail. To support another language, add its localized patterns/selectors to the configuration section at the top of `google_maps_list_converter.py` and verify the complete import flow before use.
 ## Import instructions
 
 ### 1. Export My Maps
@@ -104,7 +117,8 @@ Options:
 --delay 3           Wait three seconds between points
 --log FILE.csv      Select the audit-log path
 --cdp-url URL       Select a different Chrome debugging endpoint
---log-level LEVEL   DEBUG, INFO (default), WARNING, or ERROR`r`n--debug-log FILE    Detailed UTF-8 diagnostic log (default: converter.log)
+--log-level LEVEL   DEBUG, INFO (default), WARNING, or ERROR
+--debug-log FILE    Detailed UTF-8 diagnostic log (default: converter.log)
 ```
 
 ## Logging and UI maintenance
