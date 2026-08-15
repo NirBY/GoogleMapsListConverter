@@ -30,6 +30,7 @@ SAVE_SELECTOR = (
 )
 SAVE_ROW_SELECTOR = "xpath=ancestor-or-self::*[@role='menuitemradio' or @role='menuitemcheckbox' or @role='checkbox'][1]"
 SAVED_NAV_SELECTOR = 'button[jsaction="navigationrail.saved"]'
+VIEW_MORE_LISTS_SELECTOR = 'button[jsaction*="navigationrail.viewMore"]:visible'
 FIRST_RESULT_SELECTOR = 'a[href*="/maps/place/"]'
 NEW_LIST_PATTERN = re.compile(r"^(New list|רשימה חדשה)$")
 NOTE_ROW_XPATH = "xpath=ancestor::*[.//button[@aria-label='Add a note' or @aria-label='הוספה של הערה']][1]"
@@ -242,20 +243,37 @@ class MapsImporter:
         time.sleep(1)
 
     def ensure_list(self, description: str = "") -> tuple[bool, str]:
-        """Open the layer list or create it, then copy the map description."""
+        """Reuse an exact-name list; create only after exhaustive discovery."""
         try:
             self.open_saved()
-            existing = self.page.get_by_text(self.list_name, exact=True).last
-            if not existing.is_visible(timeout=1200):
+            view_more = self.page.locator(VIEW_MORE_LISTS_SELECTOR)
+            if view_more.count() and view_more.last.is_visible(timeout=1200):
+                view_more.last.click()
+                time.sleep(1.5)
+
+            matches = self.page.get_by_text(self.list_name, exact=True)
+            match_count = matches.count()
+            LOGGER.debug(
+                "List discovery name=%r matches=%d", self.list_name, match_count
+            )
+            if match_count > 1:
+                LOGGER.warning(
+                    "Duplicate lists already exist for %r; reusing the last match",
+                    self.list_name,
+                )
+            if match_count == 0:
+                LOGGER.info("Creating missing list %r", self.list_name)
                 self.page.get_by_text(NEW_LIST_PATTERN).last.click()
                 title = self.page.locator(LIST_TITLE_SELECTOR).last
-                title.wait_for(state="visible", timeout=5000)
+                title.wait_for(state="visible", timeout=UI_TIMEOUT_MS)
                 title.fill(self.list_name)
                 submit = self.page.locator(LIST_SUBMIT_SELECTOR).last
                 if not submit.count():
                     submit = self.page.get_by_text(LIST_CREATE_PATTERN).last
                 submit.click()
                 time.sleep(2)
+            else:
+                LOGGER.info("Reusing existing list %r", self.list_name)
             return self.set_list_description(description)
         except Exception as error:
             return (

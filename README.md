@@ -127,6 +127,8 @@ The importer locates the specific saved-list row by point name before adding its
 
 When name search fails, the importer saves the coordinate pin and adds the original KMZ point name using Google Maps' **private label** feature. This editor requires real keyboard events (typing plus Enter); programmatic form filling is ignored by Maps. The importer verifies the resulting label before reporting `LabelStatus=OK`.
 
+Before creating a layer list, the importer expands the Saved-list collection and searches every loaded list for an exact name. It reuses any existing match and logs a warning if duplicates already exist; it never creates another list when at least one exact match is found. Existing duplicate lists are not deleted automatically because they may contain user data.
+
 For safety, a rerun does not add a note to an item already present in the target list: Google Maps does not expose a stable entry identifier, and guessing could overwrite another point's note. Use fresh generated lists for a clean full import, or inspect `NoteStatus` in the audit log for manual retries.
 
 ## Tests
