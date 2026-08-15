@@ -1,14 +1,20 @@
 from pathlib import Path
 import zipfile
 import pytest
+import google_maps_list_converter as converter
 from google_maps_list_converter import (
+    FIELDS,
+    LIST_SYNC_SECONDS,
     MapsImporter,
     Place,
     build_note,
     create_verification_clip,
     description_to_text,
+    failure_result,
     group_places_by_layer,
+    list_text_pattern,
     make_list_name,
+    normalize,
     parse_kml,
     parse_kmz,
     parse_kmz_description,
@@ -60,7 +66,8 @@ def test_kmz_without_kml_is_rejected(tmp_path):
 
 
 def test_html_cleanup_and_note_limit():
-    assert description_to_text("A&amp;B<div>Next</div>") == "A&BNext"
+    assert description_to_text("A&amp;B<div>Next</div>") == "A&B Next"
+    assert description_to_text("<b>Header</b><p>Content</p>") == "Header Content"
     note = build_note("x" * 100, limit=30)
     assert len(note) == 30 and note.endswith("…")
 
@@ -104,3 +111,119 @@ def test_page_source_evidence_is_timestamped_and_grouped(tmp_path):
     source = output.read_text(encoding="utf-8")
     assert source.startswith("<!-- Captured ")
     assert "real rendered content" in source
+
+
+def test_normalize_removes_bidi_and_zero_width_markers():
+    assert (
+        normalize("  Ocean\u200f\u200f  Aquarium\u200e\u200b\ufeff ")
+        == "Ocean Aquarium"
+    )
+
+
+def test_list_text_pattern_accepts_count_but_not_partial_name():
+    pattern = list_text_pattern("Cyprus 2026 — Food")
+    assert pattern.fullmatch(" Cyprus 2026 — Food (12) ")
+    assert not pattern.fullmatch("Cyprus 2026 — Food Extra")
+
+
+def test_note_trigger_has_no_unsafe_first_row_fallback():
+    class Missing:
+        first = None
+
+        def __init__(self):
+            self.first = self
+
+        @staticmethod
+        def count():
+            return 0
+
+    class Page:
+        @staticmethod
+        def get_by_text(*_args, **_kwargs):
+            return Missing()
+
+        @staticmethod
+        def locator(*_args, **_kwargs):
+            raise AssertionError("must not fall back to the first note button")
+
+    assert MapsImporter(Page(), "List", 0, True, None)._note_trigger("Missing") is None
+
+
+def test_new_list_waits_for_save_picker_propagation(monkeypatch):
+    sleeps = []
+
+    class Locator:
+        def __init__(self, count=1):
+            self._count = count
+            self.last = self
+
+        def count(self):
+            return self._count
+
+        @staticmethod
+        def is_visible(**_kwargs):
+            return False
+
+        @staticmethod
+        def click():
+            return None
+
+        @staticmethod
+        def wait_for(**_kwargs):
+            return None
+
+        @staticmethod
+        def fill(_value):
+            return None
+
+    class Page:
+        @staticmethod
+        def locator(selector):
+            return Locator(0 if "viewMore" in selector else 1)
+
+    importer = MapsImporter(Page(), "New list", 0, True, None)
+    monkeypatch.setattr(importer, "open_saved", lambda: None)
+    monkeypatch.setattr(importer, "_saved_list_matches", lambda: Locator(0))
+    monkeypatch.setattr(
+        importer, "set_list_description", lambda _value: (True, "Skipped")
+    )
+    monkeypatch.setattr(converter.time, "sleep", sleeps.append)
+    assert importer.ensure_list()[0]
+    assert LIST_SYNC_SECONDS in sleeps
+
+
+def test_failure_result_populates_every_audit_result_field():
+    result = failure_result("ERROR", "boom", "Import error")
+    assert set(result) == set(FIELDS[5:])
+    assert all(result[field] for field in FIELDS[5:])
+
+
+def test_main_configures_stdout_and_stderr_as_utf8(monkeypatch, tmp_path):
+    class Stream:
+        def __init__(self):
+            self.encoding_set = None
+
+        def reconfigure(self, *, encoding):
+            self.encoding_set = encoding
+
+        @staticmethod
+        def write(_value):
+            return None
+
+        @staticmethod
+        def flush():
+            return None
+
+    stdout, stderr = Stream(), Stream()
+    monkeypatch.setattr(converter.sys, "stdout", stdout)
+    monkeypatch.setattr(converter.sys, "stderr", stderr)
+    monkeypatch.setattr(converter, "configure_logging", lambda *_args: None)
+    assert converter.main([str(tmp_path / "missing.kmz"), "--dry-run"]) == 2
+    assert stdout.encoding_set == stderr.encoding_set == "utf-8"
+
+
+def test_version_option_is_available(capsys):
+    with pytest.raises(SystemExit) as exit_info:
+        parser().parse_args(["--version"])
+    assert exit_info.value.code == 0
+    assert "1.0.0" in capsys.readouterr().out

@@ -1,5 +1,7 @@
 # Google Maps List Converter
 
+Current release: **v1.0.0**. See [CHANGELOG.md](CHANGELOG.md) for release details.
+
 Import a Google My Maps **KMZ** export into Google Maps **Saved Lists**. Each My Maps layer becomes a separate list, placemark descriptions become place notes, and coordinate-only pins receive the original KMZ name as a private Google Maps label.
 
 > Google has no official bulk-import API for Saved Lists. This tool automates the current Google Maps web interface, so selectors may need maintenance when Google changes Maps.

@@ -19,6 +19,7 @@ from urllib.parse import quote
 from xml.etree import ElementTree as ET
 
 # Stable configuration and change-prone Google Maps UI selectors live here.
+VERSION = "1.0.0"
 KML_NS = {"kml": "http://www.opengis.net/kml/2.2"}
 DEFAULT_CDP_URL = "http://127.0.0.1:9222"
 MAPS_URL = "https://www.google.com/maps"
@@ -76,7 +77,14 @@ class Place:
 
 
 def normalize(value: str | None) -> str:
-    return re.sub(r"\s+", " ", (value or "").strip())
+    """Normalize whitespace and remove invisible bidi/zero-width markers."""
+    cleaned = re.sub(r"[\u200b-\u200f\ufeff\u202a-\u202e]", "", value or "")
+    return re.sub(r"\s+", " ", cleaned).strip()
+
+
+def list_text_pattern(value: str) -> re.Pattern[str]:
+    """Match a list title with optional whitespace or a Google count suffix."""
+    return re.compile(rf"^\s*{re.escape(value)}(?:\s*\(\d+\))?\s*$")
 
 
 def description_to_text(value: str | None) -> str:
@@ -85,7 +93,8 @@ def description_to_text(value: str | None) -> str:
     text = html.unescape(value)
     text = re.sub(r"(?i)<br\s*/?>", "\n", text)
     text = re.sub(r"(?i)</(?:p|div|li|tr|h[1-6])>", "\n", text)
-    text = re.sub(r"<[^>]+>", "", text)
+    # Preserve a word boundary when removing inline or malformed HTML tags.
+    text = re.sub(r"<[^>]+>", " ", text)
     lines = [re.sub(r"[ \t]+", " ", x).strip() for x in text.splitlines()]
     return "\n".join(x for x in lines if x)
 
@@ -297,7 +306,8 @@ class MapsImporter:
                 if not submit.count():
                     submit = self.page.get_by_text(LIST_CREATE_PATTERN).last
                 submit.click()
-                time.sleep(2)
+                # A new list appears in Saved before it reaches the Save picker.
+                time.sleep(LIST_SYNC_SECONDS)
             else:
                 LOGGER.info("Reusing existing list %r", self.list_name)
             return self.set_list_description(description)
@@ -338,7 +348,9 @@ class MapsImporter:
             except Exception:
                 return False, "No savable Google place or coordinate pin found", False
             time.sleep(1)
-            label = self.page.get_by_text(self.list_name, exact=True).last
+            # Accept optional counts/spacing Google may append in the picker.
+            list_pattern = list_text_pattern(self.list_name)
+            label = self.page.get_by_text(list_pattern).last
             try:
                 label.wait_for(state="visible", timeout=UI_TIMEOUT_MS)
                 break
@@ -416,7 +428,10 @@ class MapsImporter:
             )
             if row.count():
                 return row.locator(buttons).first
-        return self.page.locator(buttons).first
+        LOGGER.warning(
+            "Note row not found for place=%r; note was not edited", place_name
+        )
+        return None
 
     def add_note(
         self, note: str, place_name: str, newly_saved: bool
@@ -433,6 +448,8 @@ class MapsImporter:
             self._saved_list_matches().last.click()
             time.sleep(2)
             trigger = self._note_trigger(place_name)
+            if trigger is None:
+                return False, f'Note row not found for "{place_name}"'
             trigger.wait_for(state="visible", timeout=5000)
             trigger.click()
             editor = self.page.locator(
@@ -653,6 +670,24 @@ FIELDS = [
 ]
 
 
+def failure_result(status: str, message: str, detail: str) -> dict[str, str]:
+    """Return a complete audit result even when no UI evidence was captured."""
+    return {
+        "Status": status,
+        "Message": message,
+        "LabelStatus": "FAILED",
+        "LabelMessage": detail,
+        "NoteStatus": "FAILED",
+        "NoteMessage": detail,
+        "VerificationStatus": "FAILED",
+        "VerificationMessage": detail,
+        "ScreenshotStatus": "FAILED",
+        "ScreenshotPath": "Not captured",
+        "PageSourceStatus": "FAILED",
+        "PageSourcePath": "Not captured",
+    }
+
+
 def run(args) -> int:
     prefix = args.list_prefix or parse_kmz_name(args.kmz)
     groups = group_places_by_layer(parse_kmz(args.kmz))
@@ -701,24 +736,14 @@ def run(args) -> int:
                         result = (
                             importer.import_place(place)
                             if list_ok
-                            else {
-                                "Status": "FAILED",
-                                "Message": list_message,
-                                "LabelStatus": "FAILED",
-                                "LabelMessage": "Not attempted",
-                                "NoteStatus": "FAILED",
-                                "NoteMessage": "Not attempted",
-                            }
+                            else failure_result("FAILED", list_message, "Not attempted")
                         )
                     except Exception as error:
-                        result = {
-                            "Status": "ERROR",
-                            "Message": str(error).replace("\n", " ")[:500],
-                            "LabelStatus": "FAILED",
-                            "LabelMessage": "Import error",
-                            "NoteStatus": "FAILED",
-                            "NoteMessage": "Import error",
-                        }
+                        result = failure_result(
+                            "ERROR",
+                            str(error).replace("\n", " ")[:500],
+                            "Import error",
+                        )
                     writer.writerow({**base, **result})
                     stream.flush()
                     if result["Status"] == "OK":
@@ -751,6 +776,7 @@ def parser() -> argparse.ArgumentParser:
         description="Import each My Maps layer into a separate Google Maps Saved List"
     )
     p.add_argument("kmz", type=Path)
+    p.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
     p.add_argument("--list-prefix", help="Defaults to the KMZ document name")
     p.add_argument("--cdp-url", default=DEFAULT_CDP_URL)
     p.add_argument("--delay", type=float, default=2.0)
@@ -804,8 +830,9 @@ def configure_logging(level: str, log_file: Path) -> None:
 
 def main(argv=None) -> int:
     # Hebrew layer names require UTF-8 on legacy Windows consoles.
-    if hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(encoding="utf-8")
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
     try:
         args = parser().parse_args(argv)
         configure_logging(args.log_level, args.debug_log)
