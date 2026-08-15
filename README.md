@@ -4,6 +4,22 @@ Import a Google My Maps **KMZ** export into Google Maps **Saved Lists**. Each My
 
 > Google has no official bulk-import API for Saved Lists. This tool automates the current Google Maps web interface, so selectors may need maintenance when Google changes Maps.
 
+## Important safety disclaimer
+
+**Use this software entirely at your own risk and responsibility.** This is an unofficial automation tool, is not affiliated with or supported by Google, and comes with no warranty or guarantee of correctness, availability, or data safety.
+
+Google Maps can change without notice. A selector or workflow failure may add places to the wrong list, overwrite or misplace notes and labels, create duplicates, expose private information, delete or corrupt Saved Lists, or cause other unexpected and potentially irreversible changes. In the worst case, automation or account-policy enforcement could affect data beyond the intended import or access to the Google account.
+
+Before use:
+
+- Export or otherwise back up every important map and list.
+- Use a dedicated Chrome profile and, where practical, a non-critical Google account.
+- Test first with a small disposable KMZ and disposable lists.
+- Review the dry run, audit CSV, diagnostic log, and optional screenshots.
+- Stop immediately if the Maps interface, language, or results differ from the documented workflow.
+- Never run the importer unattended against data you cannot afford to lose.
+
+The authors and contributors are not responsible for data loss, account problems, privacy exposure, financial loss, service interruption, or any other damage resulting from use or misuse of this code. You are responsible for reviewing the code, complying with Google's terms and applicable law, protecting credentials and private data, and verifying every imported result.
 ## What is imported
 
 - One Google Maps Saved List per My Maps layer (including nested folder paths)
